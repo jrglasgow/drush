@@ -214,6 +214,7 @@ function make_download_get($name, $type, $download, $download_location) {
  *   The download location on success, FALSE otherwise.
  */
 function make_download_git($name, $type, $download, $download_location) {
+  drush_command_invoke_all_ref('make_download_git_alter', $download);
   $tmp_path = make_tmp();
   $wc = _get_working_copy_option($download);
   // If no download URL specified, assume anonymous clone from git.drupal.org.
