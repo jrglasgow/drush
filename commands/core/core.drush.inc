@@ -6,6 +6,44 @@
  */
 
 /**
+ * Implementation of hook_drush_help().
+ *
+ * This function is called whenever a drush user calls
+ * 'drush help <name-of-your-command>'
+ *
+ * @param
+ *   A string with the help section (prepend with 'drush:')
+ *
+ * @return
+ *   A string with the help text for your command.
+ */
+function core_drush_help($section) {
+  switch ($section) {
+    case 'meta:core:title':
+      return dt("Core Drush commands");
+    case 'drush:help':
+      return dt("Drush provides an extensive help system that describes both drush commands and topics of general interest.  Use `drush help --filter` to present a list of command categories to view, and `drush topic` for a list of topics that go more in-depth on how to use and extend drush.");
+    case 'drush:php-script':
+      return dt("Runs the given php script(s) after a full Drupal bootstrap. A useful alternative to eval command when your php is lengthy or you can't be bothered to figure out bash quoting. If you plan to share a script with others, consider making a full drush command instead, since that's more self-documenting.  Drush provides commandline options to the script via drush_get_option('option-name'), and commandline arguments can be accessed either via drush_get_arguments(), which returns all arguments in an array, or drush_shift(), which removes the next argument from the list and returns it.");
+    case 'drush:rsync':
+      return dt("Sync the entire drupal directory or a subdirectory to a <destination> using ssh. Excludes reserved files and directories for supported VCSs. Useful for pushing copies of your tree to a staging server, or retrieving a files directory from a remote site. Relative paths start from the Drupal root directory if a site alias is used; otherwise they start from the current working directory.");
+    case 'error:DRUSH_DRUPAL_DB_ERROR':
+      $message = dt("Drush was not able to start (bootstrap) the Drupal database.\n");
+      $message .= dt("Hint: This may occur when Drush is trying to:\n");
+      $message .= dt(" * bootstrap a site that has not been installed or does not have a configured database. In this case you can select another site with a working database setup by specifying the URI to use with the --uri parameter on the command line. See `drush topic docs-aliases` for details.\n");
+      $message .= dt(" * connect the database through a socket. The socket file may be wrong or the php-cli may have no access to it in a jailed shell. See http://drupal.org/node/1428638 for details.\n");
+      $message .= dt("\nDrush was attempting to connect to: \n!credentials\n", array('!credentials' => _core_site_credentials(12)));
+      return $message;
+    case 'error:DRUSH_DRUPAL_BOOTSTRAP_ERROR':
+      $message = dt("Drush was not able to start (bootstrap) Drupal.\n");
+      $message .= dt("Hint: This error can only occur once the database connection has already been successfully initiated, therefore this error generally points to a site configuration issue, and not a problem connecting to the database.\n");
+      $message .= dt("\nDrush was attempting to connect to: \n!credentials\n", array('!credentials' => _core_site_credentials(12)));
+      return $message;
+      break;
+  }
+}
+
+/**
  * Implementation of hook_drush_command().
  *
  * In this hook, you specify which commands your
@@ -124,7 +162,7 @@ function core_drush_command() {
     'outputformat' => array(
       'default' => 'key-value',
       'pipe-format' => 'json',
-      'field-labels' => array('drupal-version' => 'Drupal version', 'uri' => 'Site URI', 'db-driver' => 'Database driver', 'db-host' => 'Database hostname', 'db-username' => 'Database username', 'db-password' => 'Database password', 'db-name' => 'Database name', 'db-status' => 'Database', 'bootstrap' => 'Drupal bootstrap', 'user' => 'Drupal user', 'theme' => 'Default theme', 'admin-theme' => 'Administration theme', 'php-bin' => 'PHP executable', 'php-conf' => 'PHP configuration', 'php-os' => 'PHP OS', 'drush-version' => 'Drush version', 'drush-conf' => 'Drush configuration', 'drush-alias-files' => 'Drush alias files', 'root' => 'Drupal root', 'site-path' => 'Site path', 'root' => 'Drupal root', 'site' => 'Site path', 'themes' => 'Themes path', 'modules' => 'Modules path', 'files' => 'File directory path', 'private' => 'Private file directory path', 'temp' => 'Temporary file directory path', 'config-active' => 'Active config directory path', 'config-staging' => 'Staging config directory path', 'files-path' => 'File directory path', 'temp-path' => 'Temporary file directory path', '%paths' => 'Other paths'),
+      'field-labels' => array('drupal-version' => 'Drupal version', 'uri' => 'Site URI', 'db-driver' => 'Database driver', 'db-hostname' => 'Database hostname', 'db-port' => 'Database port', 'db-username' => 'Database username', 'db-password' => 'Database password', 'db-name' => 'Database name', 'db-status' => 'Database', 'bootstrap' => 'Drupal bootstrap', 'user' => 'Drupal user', 'theme' => 'Default theme', 'admin-theme' => 'Administration theme', 'php-bin' => 'PHP executable', 'php-conf' => 'PHP configuration', 'php-os' => 'PHP OS', 'drush-version' => 'Drush version', 'drush-temp' => 'Drush temp directory', 'drush-conf' => 'Drush configuration', 'drush-alias-files' => 'Drush alias files', 'root' => 'Drupal root', 'site-path' => 'Site path', 'root' => 'Drupal root', 'site' => 'Site path', 'themes' => 'Themes path', 'modules' => 'Modules path', 'files' => 'File directory path', 'private' => 'Private file directory path', 'temp' => 'Temporary file directory path', 'config-active' => 'Active config path', 'config-staging' => 'Staging config path', 'files-path' => 'File directory path', 'temp-path' => 'Temporary file directory path', '%paths' => 'Other paths'),
       'formatted-filter' => '_drush_core_status_format_table_data',
       'private-fields' => 'db-password',
       'simplify-single' => TRUE,
@@ -242,6 +280,7 @@ function core_drush_command() {
       'exclude-paths' => 'List of paths to exclude, seperated by : (Unix-based systems) or ; (Windows).',
       'include-paths' => 'List of paths to include, seperated by : (Unix-based systems) or ; (Windows).',
       '{rsync-option-name}' => "Replace {rsync-option-name} with the rsync option (or option='value') that you would like to pass through to rsync. Examples include --delete, --exclude=*.sql, --filter='merge /etc/rsync/default.rules', etc. See the rsync documentation for a complete explaination of all the rsync options and values.",
+      'rsync-version' => 'Set to the version of rsync you are using to signal Drush to go into backwards-compatibility mode when using very old versions of rsync. For example, --rsync-version=2.6.8 or earlier will cause Drush to avoid the --remove-source-files flag.',
 
     ),
     'strict-option-handling' => TRUE,
@@ -253,55 +292,8 @@ function core_drush_command() {
     'aliases' => array('rsync'),
     'topics' => array('docs-aliases'),
   );
-  $items['site-install'] = array(
-    'description' => 'Install Drupal along with modules/themes/configuration using the specified install profile.',
-    'arguments' => array(
-      'profile' => 'the install profile you wish to run. defaults to \'default\' in D6, \'standard\' in D7+',
-      'key=value...' => 'any additional settings you wish to pass to the profile. Fully supported on D7+, partially supported on D6 (single step configure forms only). The key is in the form [form name].[parameter name] on D7 or just [parameter name] on D6.',
-    ),
-    'options' => array(
-      'db-url' => array(
-        'description' => 'A Drupal 6 style database URL. Only required for initial install - not re-install.',
-        'example-value' => 'mysql://root:pass@host/db',
-        ),
-      'db-prefix' => 'An optional table prefix to use for initial install.  Can be a key-value array of tables/prefixes in a drushrc file (not the command line).',
-      'db-su' => array(
-        'description' => 'Account to use when creating a new database. Must have Grant permission (mysql only). Optional.',
-        'example-value' => 'root',
-      ),
-      'db-su-pw' => array(
-        'description' => 'Password for the "db-su" account. Optional.',
-        'example-value' => 'pass',
-      ),
-      'account-name' => 'uid1 name. Defaults to admin',
-      'account-pass' => 'uid1 pass. Defaults to a randomly generated password. If desired, set a fixed password in drushrc.php.',
-      'account-mail' => 'uid1 email. Defaults to admin@example.com',
-      'locale' => array(
-        'description' => 'A short language code. Sets the default site language. Language files must already be present. You may use download command to get them.',
-        'example-value' => 'en-GB',
-      ),
-      'clean-url'=> 'Defaults to 1',
-      'site-name' => 'Defaults to Site-Install',
-      'site-mail' => 'From: for system mailings. Defaults to admin@example.com',
-      'sites-subdir' => array(
-        'description' => "Name of directory under 'sites' which should be created. Only needed when the subdirectory does not already exist. Defaults to 'default'",
-        'value' => 'required',
-        'example-value' => 'directory_name',
-      ),
-    ),
-    'examples' => array(
-      'drush site-install expert --locale=uk' => '(Re)install using the expert install profile. Set default language to Ukranian.',
-      'drush site-install --db-url=mysql://root:pass@localhost:port/dbname' => 'Install using the specified DB params.',
-      'drush site-install --db-url=sqlite://sites/example.com/files/.ht.sqlite' => 'Install using SQLite (D7+ only).',
-      'drush site-install --account-name=joe --account-pass=mom' => 'Re-install with specified uid1 credentials.',
-      'drush site-install standard install_configure_form.site_default_country=FR my_profile_form.my_settings.key=value' => 'Pass additional arguments to the profile (D7 example shown here - for D6, omit the form id).',
-      "drush site-install install_configure_form.update_status_module='array(FALSE,FALSE)'" => 'Disable email notification during install and later. If your server has no smtp, this gets rid of an error during install.',
-    ),
-    'bootstrap' => DRUSH_BOOTSTRAP_DRUPAL_ROOT,
-    'aliases' => array('si'),
-  );
   $items['drupal-directory'] = array(
-    'description' => 'Return path to a given module/theme directory.',
+    'description' => 'Return the filesystem path for modules/themes and other key folders.',
     'arguments' => array(
       'target' => 'A module/theme name, or special names like root, files, private, or an alias : path alias string such as @alias:%files. Defaults to root.',
     ),
@@ -476,47 +468,6 @@ function drush_core_updatedb_status() {
   return $pending;
 }
 
-/**
- * Implementation of hook_drush_help().
- *
- * This function is called whenever a drush user calls
- * 'drush help <name-of-your-command>'
- *
- * @param
- *   A string with the help section (prepend with 'drush:')
- *
- * @return
- *   A string with the help text for your command.
- */
-function core_drush_help($section) {
-  switch ($section) {
-    case 'meta:core:title':
-      return dt("Core drush commands");
-    case 'drush:help':
-      return dt("Drush provides an extensive help system that describes both drush commands and topics of general interest.  Use `drush help --filter` to present a list of command categories to view, and `drush topic` for a list of topics that go more in-depth on how to use and extend drush.");
-    case 'drush:php-script':
-      return dt("Runs the given php script(s) after a full Drupal bootstrap. A useful alternative to eval command when your php is lengthy or you can't be bothered to figure out bash quoting. If you plan to share a script with others, consider making a full drush command instead, since that's more self-documenting.  Drush provides commandline options to the script via drush_get_option('option-name'), and commandline arguments can be accessed either via drush_get_arguments(), which returns all arguments in an array, or drush_shift(), which removes the next argument from the list and returns it.");
-    case 'drush:rsync':
-      return dt("Sync the entire drupal directory or a subdirectory to a <destination> using ssh. Excludes reserved files and directories for supported VCSs. Useful for pushing copies of your tree to a staging server, or retrieving a files directory from a remote site. Relative paths start from the Drupal root directory if a site alias is used; otherwise they start from the current working directory.");
-    case 'drush:drupal-directory':
-      return dt("Return the filesystem path for modules/themes and other key folders.");
-    case 'error:DRUSH_DRUPAL_DB_ERROR':
-      $message = dt("Drush was not able to start (bootstrap) the Drupal database.\n");
-      $message .= dt("Hint: This may occur when Drush is trying to:\n");
-      $message .= dt(" * bootstrap a site that has not been installed or does not have a configured database. In this case you can select another site with a working database setup by specifying the URI to use with the --uri parameter on the command line. See `drush topic docs-aliases` for details.\n");
-      $message .= dt(" * connect the database through a socket. The socket file may be wrong or the php-cli may have no access to it in a jailed shell. See http://drupal.org/node/1428638 for details.\n");
-      $message .= dt("\nDrush was attempting to connect to: \n!credentials\n", array('!credentials' => _core_site_credentials(12)));
-      return $message;
-    case 'error:DRUSH_DRUPAL_BOOTSTRAP_ERROR':
-      $message = dt("Drush was not able to start (bootstrap) Drupal.\n");
-      $message .= dt("Hint: This error can only occur once the database connection has already been successfully initiated, therefore this error generally points to a site configuration issue, and not a problem connecting to the database.\n");
-      $message .= dt("\nDrush was attempting to connect to: \n!credentials\n", array('!credentials' => _core_site_credentials(12)));
-      return $message;
-      break;
-  }
-}
-
-// TODO: consolidate with SQL commands?
 function _core_site_credentials($right_margin = 0) {
   // Leave some space on the right so that we can put the result into the
   // drush_log, which will again wordwrap the result.
@@ -527,14 +478,6 @@ function _core_site_credentials($right_margin = 0) {
   $output = drush_format($status_table, $metadata, 'key-value');
   drush_set_context('DRUSH_COLUMNS', $original_columns);
   return $output;
-}
-
-function _core_site_credential_table($status_table) {
-  $credentials = '';
-  foreach ($status_table as $key => $value) {
-    $credentials .= sprintf("  %-18s: %s\n", $key, $value);
-  }
-  return $credentials;
 }
 
 function _core_path_aliases($project = '') {
@@ -556,28 +499,24 @@ function _core_path_aliases($project = '') {
       else {
         $paths['%themes'] = ltrim($site_wide . '/themes', '/');
       }
-      if (drush_drupal_major_version() >= 8 && drush_get_context('DRUSH_BOOTSTRAP_PHASE') >= DRUSH_BOOTSTRAP_DRUPAL_CONFIGURATION) {
+      if (drush_drupal_major_version() >= 8 && drush_has_boostrapped(DRUSH_BOOTSTRAP_DRUPAL_CONFIGURATION)) {
         try {
-          $paths['%config-active'] = config_get_config_directory(CONFIG_ACTIVE_DIRECTORY);
-          $paths['%config-staging'] = config_get_config_directory(CONFIG_STAGING_DIRECTORY);
+          foreach ($GLOBALS['config_directories'] as $label => $unused) {
+            $paths["%config-$label"] = config_get_config_directory($label);
+          }
         }
         catch (Exception $e) {
           // Nothing to do.
         }
       }
-      if (drush_drupal_major_version() >= 7) {
-        if (drush_get_context('DRUSH_BOOTSTRAP_PHASE') >= DRUSH_BOOTSTRAP_DRUPAL_SITE) {
-          $paths['%files'] = variable_get('file_public_path', conf_path() . '/files');
-          $private_path = variable_get('file_private_path', FALSE);
-          if (!empty($private_path)) {
-            $paths['%private'] = $private_path;
-          }
 
+      if (drush_has_boostrapped(DRUSH_BOOTSTRAP_DRUPAL_FULL)) {
+        $paths['%files'] = drush_file_get_public();
+        if ($private_path = drush_file_get_private()) {
+          $paths['%private'] = $private_path;
         }
       }
-      elseif (function_exists('file_directory_path')) {
-        $paths['%files'] = file_directory_path();
-      }
+
       if (function_exists('file_directory_temp')) {
         $paths['%temp'] = file_directory_temp();
       }
@@ -585,10 +524,10 @@ function _core_path_aliases($project = '') {
       // for a project (or a few) and add its path to the path list
       if (!empty($project)) {
         drush_include_engine('drupal', 'environment');
-        $modules = drush_get_modules();
+        $projects = array_merge(drush_get_modules(), drush_get_themes());
         foreach(explode(',', $project) as $target) {
-          if (array_key_exists($target, $modules)) {
-            $paths['%' . $target] = DRUPAL_ROOT . '/' . dirname($modules[$target]->filename);
+          if (array_key_exists($target, $projects)) {
+            $paths['%' . $target] = $drupal_root . '/' . dirname($projects[$target]->filename);
           }
         }
       }
@@ -607,17 +546,20 @@ function _core_site_status_table($project = '') {
     $status_table['drupal-version'] = drush_drupal_version();
     if ($site_root = drush_get_context('DRUSH_DRUPAL_SITE_ROOT')) {
       $status_table['uri'] = drush_get_context('DRUSH_URI');
-      if ($creds = drush_get_context('DRUSH_DB_CREDENTIALS')) {
-        $status_table['db-driver'] = $creds['driver'];
-        if (!empty($creds['unix_socket'])) {
-          $status_table['db-socket'] = $creds['unix_socket'];
+      try {
+        $sql = drush_sql_get_class();
+        $db_spec = $sql->db_spec();
+        $status_table['db-driver'] = $db_spec['driver'];
+        if (!empty($db_spec['unix_socket'])) {
+          $status_table['db-socket'] = $db_spec['unix_socket'];
         }
         else {
-          $status_table['db-hostname'] = $creds['host'];
+          $status_table['db-hostname'] = $db_spec['host'];
         }
-        $status_table['db-username'] = $creds['user'];
-        $status_table['db-name'] = $creds['name'];
-        $status_table['db-password'] = $creds['pass'];
+        $status_table['db-username'] = $db_spec['username'];
+        $status_table['db-password'] = $db_spec['password'];
+        $status_table['db-name'] = $db_spec['database'];
+        $status_table['db-port'] = $db_spec['port'];
         if ($phase > DRUSH_BOOTSTRAP_DRUPAL_DATABASE) {
           $status_table['db-status'] = dt('Connected');
           if ($phase > DRUSH_BOOTSTRAP_DRUPAL_FULL) {
@@ -629,9 +571,14 @@ function _core_site_status_table($project = '') {
           }
         }
       }
+      catch (Exception $e) {
+        // Don't worry be happy.
+      }
     }
-    $status_table['theme'] = drush_theme_get_default();
-    $status_table['admin-theme'] = drush_theme_get_admin();
+    if (drush_has_boostrapped(DRUSH_BOOTSTRAP_DRUPAL_FULL)) {
+      $status_table['theme'] = drush_theme_get_default();
+      $status_table['admin-theme'] = drush_theme_get_admin();
+    }
   }
   if ($php_bin = drush_get_option('php')) {
     $status_table['php-bin'] = $php_bin;
@@ -641,6 +588,7 @@ function _core_site_status_table($project = '') {
     $status_table['php-conf'] = $php_ini_files;
   }
   $status_table['drush-version'] = DRUSH_VERSION;
+  $status_table['drush-temp'] = drush_find_tmp();
   $status_table['drush-conf'] = drush_flatten_array(drush_get_context_options('context-path', ''));
   $alias_files = _drush_sitealias_find_alias_files();
   $status_table['drush-alias-files'] = $alias_files;
@@ -689,7 +637,13 @@ function _drush_core_status_format_table_data($output, $metadata) {
  * Command callback. Runs all cron hooks.
  */
 function drush_core_cron() {
-  if (drupal_cron_run()) {
+  if (drush_drupal_major_version() < 8) {
+    $result = drupal_cron_run();
+  }
+  else {
+    $result = \Drupal::service('cron')->run();
+  }
+  if ($result) {
     drush_log(dt('Cron run successful.'), 'success');
   }
   else {
@@ -797,8 +751,9 @@ function drush_core_requirements() {
   );
 
   drupal_load_updates();
-
-  $requirements = module_invoke_all('requirements', 'runtime');
+  
+  drush_include_engine('drupal', 'environment');
+  $requirements = drush_module_invoke_all('requirements', 'runtime');
   // If a module uses "$requirements[] = " instead of
   // "$requirements['label'] = ", then build a label from
   // the title.
@@ -934,7 +889,7 @@ function drush_core_quick_drupal() {
   if (!drush_get_option('db-url', FALSE)) {
     drush_set_option('db-url', 'sqlite:' . $base . '/' . $name . '.sqlite');
   }
-  drush_set_option('root', $root);
+  drush_set_context('DRUSH_SELECTED_DRUPAL_ROOT', $root);
   if (!drush_bootstrap_to_phase(DRUSH_BOOTSTRAP_DRUPAL_ROOT)) {
     return drush_set_error('QUICK_DRUPAL_ROOT_LOCATE_FAIL', 'Unable to locate Drupal root directory.');
   }
@@ -1014,7 +969,8 @@ function drush_core_quick_drupal_options(&$items) {
   unset($options['drupal-project-rename']);
   unset($options['default-major']);
   unset($options['use-site-dir']);
-  foreach ($items['site-install']['options'] as $option => $description) {
+  $si = site_install_drush_command();
+  foreach ($si['site-install']['options'] as $option => $description) {
     if (is_array($description)) {
       $description = $description['description'];
     }
@@ -1046,7 +1002,7 @@ function drush_core_php_script() {
   }
 
   if ($script == '-') {
-    eval(stream_get_contents(STDIN));
+    return eval(stream_get_contents(STDIN));
   }
   elseif (file_exists($script)) {
     $found = $script;
@@ -1101,13 +1057,13 @@ function drush_core_php_script() {
     // just the arguments that are relevant using drush_shift().
     drush_set_context('DRUSH_SHIFT_SKIP', 2);
     if (_drush_core_eval_shebang_script($found) === FALSE) {
-      include($found);
+      return include($found);
     }
   }
 }
 
-function drush_core_php_eval($command) {
-  return eval($command . ';');
+function drush_core_php_eval($php) {
+  return eval($php . ';');
 }
 
 /**
@@ -1242,7 +1198,7 @@ function drush_core_execute() {
   $result = TRUE;
   // Get all of the args and options that appear after the command name.
   $args = drush_get_original_cli_args_and_options();
-  for ($x = 0; $x < sizeof($args); $x++) {
+  for ($x = 0; $x < count($args); $x++) {
     // escape all args except for command separators.
     if (!in_array($args[$x], array('&&', '||', ';'))) {
       $args[$x] = drush_escapeshellarg($args[$x]);

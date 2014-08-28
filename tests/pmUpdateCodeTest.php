@@ -7,11 +7,13 @@
   *   @todo test security-only once one of these modules or core gets a security release.
   */
 
+namespace Unish;
+
 /**
  *  @group slow
  *  @group pm
  */
-class pmUpdateCode extends Drush_CommandTestCase {
+class pmUpdateCode extends CommandUnishTestCase {
 
   /*
    * An array of modules to be downloaded and enabled.
@@ -23,7 +25,7 @@ class pmUpdateCode extends Drush_CommandTestCase {
    */
   public function setUp() {
     if (UNISH_DRUPAL_MAJOR_VERSION >= 8) {
-      $core = '8.0-alpha6';
+      $core = '8.0-alpha12';
       $modules_str = 'instagram_block-8.x-1.0,honeypot-8.x-1.14-beta5';
       $this->modules = array('block', 'instagram_block', 'honeypot');
     }
@@ -46,7 +48,7 @@ class pmUpdateCode extends Drush_CommandTestCase {
       'quiet' => NULL,
       'cache' => NULL,
       'skip' => NULL, // No FirePHP
-      'strict' => 0, // invoke from script: do not verify options
+      'strict' => 0,
     );
 
     $this->drush('pm-download', array($modules_str), $options);
@@ -59,7 +61,7 @@ class pmUpdateCode extends Drush_CommandTestCase {
 
     $options = array(
       'root' => $this->webroot(),
-      'uri' => key($this->sites), // Have to access class property since $sites in in setUp().
+      'uri' => key($this->getSites()),
       'yes' => NULL,
       'backup-dir' => UNISH_SANDBOX . '/backups',
       'cache' => NULL,
@@ -92,8 +94,8 @@ class pmUpdateCode extends Drush_CommandTestCase {
 
     // Verify that we keep backups as instructed.
     $backup_dir = UNISH_SANDBOX . '/backups';
-    $Directory = new RecursiveDirectoryIterator($backup_dir);
-    $Iterator = new RecursiveIteratorIterator($Directory);
+    $Directory = new \RecursiveDirectoryIterator($backup_dir);
+    $Iterator = new \RecursiveIteratorIterator($Directory);
     $found = FALSE;
     foreach ($Iterator as $item) {
       if (basename($item) == $first . '.module') {
@@ -103,7 +105,7 @@ class pmUpdateCode extends Drush_CommandTestCase {
     }
     $this->assertTrue($found, 'Backup exists and contains the first module.');
 
-    $Iterator = new RecursiveIteratorIterator($Directory);
+    $Iterator = new \RecursiveIteratorIterator($Directory);
     $found = FALSE;
     foreach ($Iterator as $item) {
       if (basename($item) == $second . '.module') {

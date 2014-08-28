@@ -1,5 +1,17 @@
 <?php
 
+/**
+ * Implementation of hook_drush_help().
+ */
+function search_drush_help($section) {
+  switch ($section) {
+    case 'meta:search:title':
+      return dt('Search commands');
+    case 'meta:search:summary':
+      return dt('Interact with Drupal\'s core search system.');
+  }
+}
+
 function search_drush_command() {
   $items['search-status'] = array(
     'description' => 'Show how many items remain to be indexed out of the total.',
@@ -42,19 +54,21 @@ function _drush_search_status() {
   $total = 0;
   if (drush_drupal_major_version() >= 7) {
     foreach (variable_get('search_active_modules', array('node', 'user')) as $module) {
-      $status = module_invoke($module, 'search_status');
+      drush_include_engine('drupal', 'environment');
+      $status = drush_module_invoke($module, 'search_status');
       $remaining += $status['remaining'];
       $total += $status['total'];
     }
   }
   else {
-    foreach (module_implements('search') as $module) {
+    drush_include_engine('drupal', 'environment');
+    foreach (drush_module_implements('search') as $module) {
       // Special case. Apachesolr recommends disabling core indexing with
       // search_cron_limit = 0. Need to avoid infinite status loop.
       if ($module == 'node' && variable_get('search_cron_limit', 10) == 0) {
         continue;
       }
-      $status = module_invoke($module, 'search', 'status');
+      $status = drush_module_invoke($module, 'search', 'status');
       if (isset($status['remaining']) && isset($status['total'])) {
         $remaining += $status['remaining'];
         $total += $status['total'];
@@ -78,16 +92,18 @@ function _drush_search_index() {
     // Use drush_invoke_process() to start subshell. Avoids out of memory issue.
     $eval = "register_shutdown_function('search_update_totals');";
     if (drush_drupal_major_version() >= 7) {
-      // If needed, prod module_implements() to recognize our
+      // If needed, prod drush_module_implements() to recognize our
       // hook_node_update_index() implementations.
-      $implementations = module_implements('node_update_index');
+      drush_include_engine('drupal', 'environment');
+      $implementations = drush_module_implements('node_update_index');
       if (!in_array('system', $implementations)) {
         // Note that this resets module_implements cache.
-        module_implements('node_update_index', FALSE, TRUE);
+        drush_module_implements('node_update_index', FALSE, TRUE);
       }
 
       foreach (variable_get('search_active_modules', array('node', 'user')) as $module) {
-        $eval .= " module_invoke('$module', 'update_index');";
+        // TODO: Make sure that drush_module_invoke is really available when doing this eval().
+        $eval .= " drush_module_invoke('$module', 'update_index');";
       }
     }
     else {

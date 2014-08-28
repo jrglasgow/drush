@@ -1,5 +1,20 @@
 <?php
 
+use Drupal\Core\DrupalKernel;
+use Symfony\Component\HttpFoundation\Request;
+
+/**
+ * Implementation of hook_drush_help().
+ */
+function cache_drush_help($section) {
+  switch ($section) {
+    case 'meta:cache:title':
+      return dt('Cache commands');
+    case 'meta:cache:summary':
+      return dt('Interact with Drupal\'s cache API.');
+  }
+}
+
 /**
  * Implementation of hook_drush_command().
  */
@@ -74,7 +89,9 @@ function cache_drush_command() {
  * @return
  *   Array of clear types.
  */
-function cache_cache_command_clear_complete() {
+function cache_cache_clear_complete() {
+  // Bootstrap as far as possible so that Views and others can add lookup their caches.
+  drush_bootstrap_max();
   return array('values' => array_keys(drush_cache_clear_types(TRUE)));
 }
 
@@ -107,10 +124,7 @@ function drush_cache_clear_pre_validate($type = NULL) {
 function drush_cache_command_clear($type = NULL) {
   $types = drush_cache_clear_types(drush_has_boostrapped(DRUSH_BOOTSTRAP_DRUPAL_FULL));
 
-  if ($type) {
-    drush_op($types[$type]);
-  }
-  else {
+  if (!isset($type)) {
     // Don't offer 'all' unless Drush has bootstrapped the Drupal site
     if (!drush_has_boostrapped(DRUSH_BOOTSTRAP_DRUPAL_FULL)) {
       unset($types['all']);
@@ -134,9 +148,9 @@ function drush_cache_command_clear($type = NULL) {
  * @param $cid
  *   The cache ID of the object to fetch.
  * @param $bin
- *   A specific bin to fetch from.
+ *   A specific bin to fetch from. If not specified, the default bin is used.
  */
-function drush_cache_command_get($cid = NULL, $bin = 'cache') {
+function drush_cache_command_get($cid = NULL, $bin = NULL) {
   drush_include_engine('drupal', 'cache', drush_drupal_major_version());
   $result = drush_op('_drush_cache_command_get', $cid, $bin);
 
@@ -154,13 +168,13 @@ function drush_cache_command_get($cid = NULL, $bin = 'cache') {
  * @param $data
  *   The data to save to the cache, or '-' to read from STDIN.
  * @param $bin
- *   A specific bin to fetch from.
+ *   A specific bin to fetch from. If not specified, the default bin is used.
  * @param $expire
  *   The expiry timestamp for the cached object.
  * @param $tags
  *   Cache tags for the cached object.
  */
-function drush_cache_command_set($cid = NULL, $data = '', $bin = 'cache', $expire = NULL, $tags = array()) {
+function drush_cache_command_set($cid = NULL, $data = '', $bin = NULL, $expire = NULL, $tags = array()) {
   // In addition to prepare, this also validates. Can't easily be in own validate callback as
   // reading once from STDIN empties it.
   $data = drush_cache_set_prepare_data($data);
@@ -233,11 +247,23 @@ function drush_cache_clear_drush() {
  * Rebuild a Drupal 8 site.
  */
 function drush_cache_rebuild() {
-  require_once DRUPAL_ROOT . '/core/includes/utility.inc';
-  // drupal_rebuild() calls drupal_flush_all_caches() itself, so we don't do it
-  // manually.
-  drupal_rebuild();
+  $drupal_core = drush_get_context('DRUSH_DRUPAL_CORE');
+  chdir(dirname($drupal_core));
+  $autoloader = require  $drupal_core . '/vendor/autoload.php';
+  require_once $drupal_core . '/includes/utility.inc';
+
+  $request = Request::createFromGlobals();
+// Manually resemble early bootstrap of DrupalKernel::boot().
+  require_once $drupal_core . '/includes/bootstrap.inc';
+  DrupalKernel::bootEnvironment();
+
+  // drupal_rebuild() calls drupal_flush_all_caches() itself, so we don't do it manually.
+  drupal_rebuild($autoloader, $request);
   // As this command replaces `drush cache-clear all` for Drupal 8 users, clear
   // the Drush cache as well, for consistency with that behavior.
   drush_cache_clear_drush();
+
+  // Clears the render cache.
+  drush_include_engine('drupal', 'cache', drush_drupal_major_version());
+  drush_cache_clear_render();
 }

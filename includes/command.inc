@@ -56,10 +56,6 @@ function drush_invoke($command, $arguments = array()) {
  * Invoke a command in a new process, targeting the site specified by
  * the provided site alias record.
  *
- * Use this function instead of drush_backend_invoke_sitealias,
- * drush_backend_invoke_args, or drush_backend_invoke_command
- * (all obsolete in drush 5).
- *
  * @param array $site_alias_record
  *  The site record to execute the command on.  Use '@self' to run on the current site.
  * @param string $command_name
@@ -359,8 +355,13 @@ function _drush_invoke_hooks($command, $args) {
         $available_rollbacks[] = $func . '_rollback';
         $completed[] = $func;
         drush_log(dt("Calling hook !hook", array('!hook' => $func)), 'debug');
-        $result = call_user_func_array($func, $args);
-        drush_log(dt("Returned from hook !hook", array('!hook' => $func)), 'debug');
+        try {
+          $result = call_user_func_array($func, $args);
+          drush_log(dt("Returned from hook !hook", array('!hook' => $func)), 'debug');
+        }
+        catch (Exception $e) {
+          drush_set_error('DRUSH_EXECUTION_EXCEPTION', $e->getMessage());
+        }
         // If there is an error, break out of the foreach
         // $variations and foreach $callback_list
         if (drush_get_error() || ($result === FALSE)) {
@@ -573,7 +574,7 @@ function _drush_verify_cli_options($command) {
   // Next check to see if all required options were specified.
   $missing_required_options = array();
   foreach ($command['options'] as $option_name => $option) {
-    if (is_array($option) && !empty($option['required']) && is_null(drush_get_option($option_name, NULL))) {
+    if (is_array($option) && !empty($option['required']) && drush_get_option($option_name, NULL) === NULL) {
       $missing_required_options[] = $option_name;
     }
   }
@@ -605,9 +606,9 @@ function _drush_verify_cli_arguments($command) {
       $missing = $required_arg_count > 1 ? dt('Missing required arguments') : dt('Missing required argument');
       $required = array_slice(array_keys($command['argument-description']), 0, $required_arg_count);
 
-      return drush_set_error(dt("@missing: '@required'.  See `drush help @command` for information on usage.", array(
+      return drush_set_error(dt("@missing: @required.  See `drush help @command` for information on usage.", array(
         '@missing' => $missing,
-        '@required' => implode("', '", $required),
+        '@required' => implode(", ", $required),
         '@command' => $command['command'],
       )));
     }
@@ -809,7 +810,7 @@ function drush_parse_args() {
   // be either 'help' or 'version' (the later if --version is specified)
   // @todo: it would be handy if one could do `drush @remote st --help` and
   // have that show help for st. Today, that shows --help for help command!
-  if (!sizeof($arguments)) {
+  if (!count($arguments)) {
     if (array_key_exists('version', $options)) {
       $arguments = array('version');
     }
@@ -948,7 +949,7 @@ function drush_adjust_args_if_shebang_script(&$args) {
 function drush_process_bootstrap_to_first_arg(&$arguments) {
   if (drush_get_option('bootstrap-to-first-arg', FALSE)) {
     $shift_alias_pos = 1 + (drush_get_context('DRUSH_SHEBANG_SCRIPT') === TRUE);
-    if (sizeof($arguments) >= $shift_alias_pos) {
+    if (count($arguments) >= $shift_alias_pos) {
       $shifted_alias = $arguments[$shift_alias_pos];
       $alias_record = drush_sitealias_get_record($shifted_alias);
       if (!empty($alias_record)) {
@@ -1014,11 +1015,10 @@ function drush_get_commands() {
 }
 
 function drush_command_defaults($key, $commandfile, $path) {
-  return array(
+  $defaults =  array(
     'command' => $key,
     'command-hook' => $key,
     'invoke hooks' => TRUE,
-    'bootstrap' => DRUSH_BOOTSTRAP_DRUPAL_LOGIN,
     'callback arguments' => array(),
     'commandfile' => $commandfile,
     'path' => dirname($path),
@@ -1043,12 +1043,17 @@ function drush_command_defaults($key, $commandfile, $path) {
     'drupal dependencies' => array(),
     'drush dependencies' => array(),
     'handle-remote-commands' => FALSE,
+    'remote-tty' => FALSE,
     'strict-option-handling' => FALSE,
     'bootstrap_errors' => array(),
     'topics' => array(),
     'hidden' => FALSE,
     'category' => $commandfile,
   );
+  if ($bootstrap = drush_get_context('DRUSH_BOOTSTRAP_OBJECT')) {
+    $defaults = array_merge($defaults, $bootstrap->command_defaults());
+  }
+  return $defaults;
 }
 
 /**
@@ -1117,6 +1122,9 @@ function _drush_command_translate($source) {
  *   locally rather than remotely dispatched.  When this mode is set, the target site
  *   can be obtained via:
  *     drush_get_context('DRUSH_TARGET_SITE_ALIAS')
+ * - remote-tty: set to TRUE if Drush should force ssh to allocate a pseudo-tty
+ *   when this command is being called remotely.  Important for interactive commands.
+ *   Remote commands that allocate a psedo-tty always print "Connection closed..." when done.
  * - strict-option-handling: set to TRUE if drush should strictly separate local command
  *   cli options from the global options.  Usually, drush allows global cli options and
  *   command cli options to be interspersed freely on the commandline.  For commands where
@@ -1170,6 +1178,9 @@ function _drush_command_translate($source) {
  *       of the data items in it.
  * - engines: declares information on Drush engines the command will load.
  *   Available engines can vary by command type.
+ *
+ * @return bool|array
+ *   A command definition.
  */
 function drush_parse_command() {
   $args = drush_get_arguments();
@@ -1199,8 +1210,8 @@ function drush_parse_command() {
 }
 
 /**
- * Called by drush_parse_command.  If a command is dispatched
- * directly by drush_dispatch, then drush_dispatch will call
+ * Called by drush_parse_command().  If a command is dispatched
+ * directly by drush_dispatch(), then drush_dispatch() will call
  * this function.
  */
 function _drush_prepare_command(&$command, $arguments = array()) {
@@ -1324,9 +1335,6 @@ function drush_command_normalize_name($command_name) {
  * - /drush and sites/all/drush in current Drupal site.
  * - Folders belonging to enabled modules in the current Drupal site.
  *
- * Commands implementing hook_drush_load() in MODULE.drush.load.inc with
- * a return value FALSE will not be loaded.
- *
  * A Drush command file is a file that matches "*.drush.inc".
  *
  * @see drush_scan_directory()
@@ -1339,126 +1347,22 @@ function drush_commandfile_list() {
   return drush_get_context('DRUSH_COMMAND_FILES', array());
 }
 
-function _drush_find_commandfiles($phase, $phase_max = FALSE) {
-  if (!$phase_max) {
-    $phase_max = $phase;
-  }
-
-  $searchpath = array();
-  switch ($phase) {
-    case DRUSH_BOOTSTRAP_DRUSH:
-      // Core commands shipping with drush
-      $searchpath[] = realpath(dirname(__FILE__) . '/../commands/');
-
-      // User commands, specified by 'include' option
-      if ($include = drush_get_context('DRUSH_INCLUDE', FALSE)) {
-        foreach ($include as $path) {
-          if (is_dir($path)) {
-            drush_log('Include ' . $path, 'notice');
-            $searchpath[] = $path;
-          }
-        }
-      }
-
-      // System commands, residing in $SHARE_PREFIX/share/drush/commands
-      $share_path = drush_get_context('DRUSH_SITE_WIDE_COMMANDFILES');
-      if (is_dir($share_path)) {
-        $searchpath[] = $share_path;
-      }
-
-      // User commands, residing in ~/.drush
-      $per_user_config_dir = drush_get_context('DRUSH_PER_USER_CONFIGURATION');
-      if (!empty($per_user_config_dir)) {
-        $searchpath[] = $per_user_config_dir;
-      }
-
-      // Include commandfiles located in Drupal's /drush and sites/all/drush even before root is bootstrapped.
-      if ($drupal_root = drush_get_context('DRUSH_SELECTED_DRUPAL_ROOT')) {
-        $searchpath[] = $drupal_root . '/drush';
-        $searchpath[] = $drupal_root . '/sites/all/drush';
-      }
-      break;
-    case DRUSH_BOOTSTRAP_DRUPAL_SITE:
-      // If we are going to stop bootstrapping at the site, then
-      // we will quickly add all commandfiles that we can find for
-      // any module associated with the site, whether it is enabled
-      // or not.  If we are, however, going to continue on to bootstrap
-      // all the way to DRUSH_BOOTSTRAP_DRUPAL_FULL, then we will
-      // instead wait for that phase, which will more carefully add
-      // only those Drush commandfiles that are associated with
-      // enabled modules.
-      if ($phase_max < DRUSH_BOOTSTRAP_DRUPAL_FULL) {
-        $searchpath[] = conf_path() . '/modules';
-        // Add all module paths, even disabled modules. Prefer speed over accuracy.
-        $searchpath[] = 'sites/all/modules';
-        // In D8, we search top level directories as well.
-        if (drush_drupal_major_version() >=8) {
-          $searchpath[] = 'modules';
-        }
-      }
-
-      $cid = drush_cid_install_profile();
-      if ($cached = drush_cache_get($cid)) {
-        $profile = $cached->data;
-        $path = "profiles/$profile/modules";
-        if (file_exists($path)) {
-          $searchpath[] = $path;
-        }
-        elseif (file_exists('sites/all/' . $path)) {
-          $searchpath[] = 'sites/all/' . $path;
-        }
-      }
-      else {
-        // If install_profile is not available, scan all profiles.
-        $searchpath[] = "profiles";
-        $searchpath[] = "sites/all/profiles";
-      }
-
-      // TODO: Treat themes like modules and stop unconditionally searching here.
-      $searchpath[] = 'sites/all/themes';
-      $searchpath[] = conf_path() . '/themes';
-      // In D8, we search top level directories as well.
-      if (drush_drupal_major_version() >=8) {
-        $searchpath[] = 'themes';
-      }
-      break;
-    case DRUSH_BOOTSTRAP_DRUPAL_CONFIGURATION:
-      // Nothing to do here anymore. Left for documentation.
-      break;
-    case DRUSH_BOOTSTRAP_DRUPAL_FULL:
-      // Add enabled module paths. Since we are bootstrapped,
-      // we can use the Drupal API.
-      $ignored_modules = drush_get_option_list('ignored-modules', array());
-      foreach (array_diff(module_list(), $ignored_modules) as $module) {
-        $filename = drupal_get_filename('module', $module);
-        $searchpath[] = dirname($filename);
-      }
-      break;
-  }
-
-  _drush_add_commandfiles($searchpath, $phase);
-}
-
 function _drush_add_commandfiles($searchpath, $phase = NULL, $reset = FALSE) {
   static $evaluated = array();
   static $deferred = array();
 
   $cache =& drush_get_context('DRUSH_COMMAND_FILES', array());
 
-  if (sizeof($searchpath)) {
+  if (count($searchpath)) {
     if (!$reset) {
       // Assemble a cid specific to the bootstrap phase and searchpaths.
       // Bump $cf_version when making a change to a dev version of Drush
       // that invalidates the commandfile cache.
-      $cf_version = 2;
+      $cf_version = 4;
       $cid = drush_get_cid('commandfiles-' . $phase, array(), array_merge($searchpath, array($cf_version)));
       $command_cache = drush_cache_get($cid);
       if (isset($command_cache->data)) {
         $cached_list = $command_cache->data;
-        // Take drush_make out of the cache to help people transitioning
-        // from using drush make as a contrib module to drush make in core.
-        // See: http://drupal.org/node/1366746
-        unset($cached_list['drush_make']);
         // If we want to temporarily ignore modules via 'ignored-modules',
         // then we need to take these out of the cache as well.
         foreach (drush_get_option_list('ignored-modules') as $ignored) {
@@ -1483,8 +1387,7 @@ function _drush_add_commandfiles($searchpath, $phase = NULL, $reset = FALSE) {
           foreach ($files as $filename => $info) {
             $module = basename($filename);
             $module = preg_replace('/\.*drush[0-9]*\.inc/', '', $module);
-            // Only try to bootstrap modules that we have never seen before, or that we
-            // have tried to load but did not due to an unmet _drush_load() requirement.
+            // Only try to bootstrap modules that we have never seen before.
             if (!array_key_exists($module, $evaluated) && file_exists($filename)) {
               $evaluated[$module] = TRUE;
               $list[$module] = $filename;
@@ -1496,9 +1399,8 @@ function _drush_add_commandfiles($searchpath, $phase = NULL, $reset = FALSE) {
         drush_cache_set($cid, $list);
       }
     }
-    // Check each file in the consideration list; if there is
-    // a modulename_drush_load() function in modulename.drush.load.inc,
-    // then call it to determine if this file should be loaded.
+    // Check to see if the commandfile is valid for this version of Drupal
+    // and is still present on filesystem (in case of cached commandfile list).
     foreach ($list as $module => $filename) {
       $load_command = TRUE;
       $module_versionless = preg_replace('/\.d([0-9]+)$/', '', $module);
@@ -1509,17 +1411,6 @@ function _drush_add_commandfiles($searchpath, $phase = NULL, $reset = FALSE) {
         }
         if (!empty($drupal_version) && ($drupal_version != drush_drupal_major_version())) {
           $load_command = FALSE;
-        }
-        else {
-          $load_test_inc = dirname($filename) . "/" . $module . ".drush.load.inc";
-          if (file_exists($load_test_inc)) {
-            include_once($load_test_inc);
-            $module_versionless = preg_replace('/\.d([0-9]+)$/', '', $module);
-            $load_test_func = $module_versionless . "_drush_load";
-            if (function_exists($load_test_func)) {
-              $load_command = $load_test_func($phase);
-            }
-          }
         }
         if ($load_command) {
           // Only try to require if the file exists. If not, a file from the
@@ -1546,14 +1437,14 @@ function _drush_add_commandfiles($searchpath, $phase = NULL, $reset = FALSE) {
       }
     }
 
-    if (sizeof($list)) {
+    if (count($list)) {
       ksort($cache);
     }
   }
 }
 
 /**
- * Substrings to ignore during commandfile searching.
+ * Substrings to ignore during commandfile and site alias searching.
  */
 function drush_filename_blacklist() {
   $blacklist = array('.', '..', 'drush_make', 'examples', 'tests', 'disabled', 'gitcache', 'cache');
@@ -1562,6 +1453,7 @@ function drush_filename_blacklist() {
       $blacklist[] = 'drush' . $v;
     }
   }
+  $blacklist = array_merge($blacklist, drush_get_option_list('exclude'));
   return $blacklist;
 }
 
@@ -1636,7 +1528,7 @@ function drush_command_set_command_specific($command_default_options, $command =
     // If we set or cleared any options, go back and re-bootstrap any global
     // options such as -y and -v.
     if (!empty($options_were_set)) {
-      _drush_bootstrap_global_options();
+      _drush_preflight_global_options();
     }
     // If the command uses strict option handling, back out any global
     // options that were set.
@@ -1757,41 +1649,6 @@ function drush_enforce_requirement_bootstrap_phase(&$command) {
 }
 
 /**
- * Check that a command has its declared dependencies available or have no
- * dependencies.
- *
- * @param $command
- *   Command to check. Any errors  will be added to the 'bootstrap_errors' element.
- *
- * @return
- *   TRUE if command is valid.
- */
-function drush_enforce_requirement_drupal_dependencies(&$command) {
-  // If the command bootstrap is DRUSH_BOOTSTRAP_MAX, then we will
-  // allow the requirements to pass if we have not successfully
-  // bootstrapped Drupal.  The combination of DRUSH_BOOTSTRAP_MAX
-  // and 'drupal dependencies' indicates that the drush command
-  // will use the dependent modules only if they are available.
-  if ($command['bootstrap'] == DRUSH_BOOTSTRAP_MAX) {
-    // If we have not bootstrapped, then let the dependencies pass;
-    // if we have bootstrapped, then enforce them.
-    if (drush_get_context('DRUSH_BOOTSTRAP_PHASE') < DRUSH_BOOTSTRAP_DRUPAL_FULL) {
-      return TRUE;
-    }
-  }
-  // If there are no drupal dependencies, then do nothing
-  if (!empty($command['drupal dependencies'])) {
-    foreach ($command['drupal dependencies'] as $dependency) {
-      if(!function_exists('module_exists') || !module_exists($dependency)) {
-        $command['bootstrap_errors']['DRUSH_COMMAND_DEPENDENCY_ERROR'] = dt('Command !command needs the following modules installed/enabled to run: !dependencies.', array('!command' => $command['command'], '!dependencies' => implode(', ', $command['drupal dependencies'])));
-        return FALSE;
-      }
-    }
-  }
-  return TRUE;
-}
-
-/**
  * Check that a command has its declared drush dependencies available or have no
  * dependencies. Drush dependencies are helpful when a command is invoking
  * another command, or implementing its API.
@@ -1907,6 +1764,6 @@ function drush_shell_alias_replace() {
     array_splice($argv, $pos, 1, $replacement);
     drush_set_context('argv', $argv);
     drush_parse_args();
-    _drush_bootstrap_global_options();
+    _drush_preflight_global_options();
   }
 }

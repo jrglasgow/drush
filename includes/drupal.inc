@@ -41,13 +41,13 @@ function drush_drupal_version($drupal_root = NULL) {
 
 function drush_drupal_cache_clear_all() {
   if (drush_drupal_major_version() >= 8) {
-    drush_invoke('cache-rebuild');
+    drush_invoke_process('@self', 'cache-rebuild');
   }
   else {
-    $prior = drush_get_context('DRUSH_AFFIRMATIVE');
-    drush_set_context('DRUSH_AFFIRMATIVE', TRUE);
-    drush_invoke('cache-clear', 'all');
-    drush_set_context('DRUSH_AFFIRMATIVE', $prior);
+    // $prior = drush_get_context('DRUSH_AFFIRMATIVE');
+    // drush_set_context('DRUSH_AFFIRMATIVE', TRUE);
+    drush_invoke_process('@self', 'cache-clear', array('all'));
+    // drush_set_context('DRUSH_AFFIRMATIVE', $prior);
   }
 }
 
@@ -119,7 +119,7 @@ function system_watchdog($log_entry) {
  * of the update process to the logging system.
  */
 function _drush_log_update_sql($ret) {
-  if (sizeof($ret)) {
+  if (count($ret)) {
     foreach ($ret as $info) {
       if (is_array($info)) {
         if (!$info['success']) {
@@ -159,6 +159,7 @@ function drush_drupal_login($drush_user) {
   else {
     $user = user_load(is_numeric($drush_user) ? array('uid' => $drush_user) : array('name' => $drush_user));
   }
+
   $name = drush_get_user_name($user);
   $uid = drush_get_user_id($user);
 

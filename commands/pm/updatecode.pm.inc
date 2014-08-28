@@ -35,14 +35,14 @@ function drush_pm_updatecode() {
   );
   $values = drush_invoke_process("@self", 'pm-updatestatus', func_get_args(), $updatestatus_options, $backend_options);
   if (!is_array($values) || $values['error_status']) {
-    return FALSE;
+    return drush_set_error('pm-updatestatus failed.');
   }
   $updateable = $values['object'];
   drush_print($values['output']);
   $tmpfile = drush_tempnam('pm-updatecode.');
 
-  $last = pm_update_last_check();
-  drush_print(dt('Update information last refreshed: ') . ($last  ? format_date($last) : dt('Never')));
+//  $last = pm_update_last_check();
+//  drush_print(dt('Update information last refreshed: ') . ($last  ? format_date($last) : dt('Never')));
 
   // Prevent update of core if --no-core was specified.
   if (isset($updateable['drupal']) && drush_get_option('no-core', FALSE)) {
@@ -206,7 +206,7 @@ function _pm_update_core(&$project, $tmpfile) {
     _pm_update_move_files($project['backup_target'] . '/profiles', $drupal_root . '/profiles', array('default'), FALSE);
   }
 
-  pm_update_complete($project, $version_control);
+  pm_update_finish($project, $version_control);
 
   return TRUE;
 }
@@ -309,7 +309,7 @@ function pm_update_packages($update_info, $tmpfile) {
     if (pm_update_project($project, $version_control) === FALSE) {
       return FALSE;
     }
-    pm_update_complete($project, $version_control);
+    pm_update_finish($project, $version_control);
   }
 
   return TRUE;
@@ -358,9 +358,9 @@ function pm_update_project($project, $version_control) {
 }
 
 /**
- * Run the post-update hooks after updatecode is complete for one project.
+ * Run the post-update hooks after updatecode is finished for one project.
  */
-function pm_update_complete($project, $version_control) {
+function pm_update_finish($project, $version_control) {
   drush_print(dt('Project !project was updated successfully. Installed version is now !version.', array('!project' => $project['name'], '!version' => $project['candidate_version'])));
   drush_command_invoke_all('pm_post_update', $project['name'], $project['releases'][$project['candidate_version']]);
   $version_control->post_update($project);

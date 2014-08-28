@@ -3,9 +3,11 @@
  * @file
  *   Specific functions for a drupal 8+ environment.
  *   drush_include_engine() magically includes either this file
- *   or environment_X.inc depending on which version of drupal drush
+ *   or environment_X.inc depending on which version of drupal Drush
  *   is called from.
  */
+
+use Drupal\Core\Site\Settings;
 
 /**
  * Get complete information for all available modules.
@@ -19,7 +21,6 @@ function drush_get_modules($include_hidden = TRUE) {
   $modules = system_rebuild_module_data();
 
   foreach ($modules as $key => $module) {
-    $module->type = 'module';
     if ((!$include_hidden) && (isset($module->info['hidden']))) {
       unset($modules[$key]);
     }
@@ -71,7 +72,7 @@ function drush_check_module_dependencies($modules, $module_info) {
         $current_version = $module_info[$dependency_name]->info['version'];
         $current_version = str_replace(drush_get_drupal_core_compatibility() . '-', '', $current_version);
         $incompatibility = drupal_check_incompatibility($v, $current_version);
-        if (!is_null($incompatibility)) {
+        if (isset($incompatibility)) {
           $status[$key]['error'] = array(
             'code' => 'DRUSH_PM_ENABLE_DEPENDENCY_VERSION_MISMATCH',
             'message' => dt('Module !module cannot be enabled because it depends on !dependency !required_version but !current_version is available', array('!module' => $module, '!dependency' => $dependency_name, '!required_version' => $incompatibility, '!current_version' => $current_version))
@@ -99,7 +100,8 @@ function drush_check_module_dependencies($modules, $module_info) {
 function drush_module_dependents($modules, $module_info) {
   $dependents = array();
   foreach ($modules as $module) {
-    $dependents = array_merge($dependents, drupal_map_assoc(array_keys($module_info[$module]->required_by)));
+    $keys = array_keys($module_info[$module]->required_by);
+    $dependents = array_merge($dependents, array_combine($keys, $keys));
   }
 
   return array_unique($dependents);
@@ -111,7 +113,51 @@ function drush_module_dependents($modules, $module_info) {
  * This is a wrapper for module_list().
  */
 function drush_module_list() {
-  return module_list('module_enabled');
+  $modules = array_keys(\Drupal::moduleHandler()->getModuleList());
+  return array_combine($modules, $modules);
+}
+
+/**
+ * Installs a given list of modules.
+ *
+ * @see \Drupal\Core\Extension\ModuleHandlerInterface::install()
+ *
+ */
+function drush_module_install($module_list, $enable_dependencies = TRUE) {
+  return \Drupal::moduleHandler()->install($module_list, $enable_dependencies);
+}
+
+/**
+ * Checks that a given module exists and is enabled.
+ *
+ * @see \Drupal\Core\Extension\ModuleHandlerInterface::moduleExists()
+ *
+ */
+function drush_module_exists($module) {
+  return \Drupal::moduleHandler()->moduleExists($module);
+}
+
+/**
+ * Determines which modules are implementing a hook.
+ *
+ * @param string $hook
+ *   The hook name.
+ * @param bool $sort
+ *  Not used in Drupal 8 environment.
+ * @param bool $reset
+ *  TRUE to reset the hook implementation cache.
+ *
+ * @see \Drupal\Core\Extension\ModuleHandlerInterface::getImplementations().
+ * @see \Drupal\Core\Extension\ModuleHandlerInterface::resetImplementations().
+ *
+ */
+function drush_module_implements($hook, $sort = FALSE, $reset = FALSE) {
+  // $sort is there for consistency, but looks like Drupal 8 has no equilavient for it.
+  // We can sort the list manually later if really needed.
+  if ($reset == TRUE){
+    \Drupal::moduleHandler()->resetImplementations();
+  }
+  return \Drupal::moduleHandler()->getImplementations($hook);
 }
 
 /**
@@ -145,7 +191,7 @@ function drush_module_enable($modules) {
   // The list of modules already have all the dependencies, but they might not
   // be in the correct order. Still pass $enable_dependencies = TRUE so that
   // Drupal will enable the modules in the correct order.
-  module_install($modules);
+  drush_module_install($modules);
   // Flush all caches.
   drupal_flush_all_caches();
 }
@@ -157,7 +203,7 @@ function drush_module_enable($modules) {
  *   Array of module names
  */
 function drush_module_disable($modules) {
-  drush_set_error('DRUSH_MODULE_DISABLE', dt('Drupal 8 does not support disabling modules.'));
+  drush_set_error('DRUSH_MODULE_DISABLE', dt('Drupal 8 does not support disabling modules. Use pm-uninstall instead.'));
 }
 
 /**
@@ -171,6 +217,28 @@ function drush_module_uninstall($modules) {
 }
 
 /**
+  * Invokes a hook in a particular module.
+  *
+  */
+function drush_module_invoke($module, $hook) {
+  $args = func_get_args();
+  // Remove $module and $hook from the arguments.
+  unset($args[0], $args[1]);
+  return \Drupal::moduleHandler()->invoke($module, $hook, $args);
+}
+
+/**
+  * Invokes a hook in all enabled modules that implement it.
+  *
+  */
+function drush_module_invoke_all($hook) {
+  $args = func_get_args();
+  // Remove $hook from the arguments.
+  array_shift($args);
+  return Drupal::moduleHandler()->invokeAll($hook, $args);
+}
+
+/**
  * Get complete information for all available themes.
  *
  * @param $include_hidden
@@ -181,7 +249,6 @@ function drush_module_uninstall($modules) {
 function drush_get_themes($include_hidden = TRUE) {
   $themes = system_rebuild_theme_data();
   foreach ($themes as $key => $theme) {
-    $theme->type = 'theme';
     if (!$include_hidden) {
       if (isset($theme->info['hidden'])) {
         unset($themes[$key]);
@@ -259,8 +326,68 @@ function drush_queue_get_queues() {
   static $queues;
   if (!isset($queues)) {
     $queues = \Drupal::moduleHandler()->invokeAll('queue_info');
-    drupal_alter('queue_info', $queues);
+    \Drupal::moduleHandler()->alter('queue_info', $queues);
   }
   return $queues;
+}
+
+function _drush_theme_default() {
+  return \Drupal::config('system.theme')->get('default');
+}
+
+function _drush_theme_admin() {
+  $theme = \Drupal::config('system.theme')->get('admin');
+  return empty($theme) ? 'seven' : $theme;
+}
+
+function _drush_file_public_path() {
+  return Settings::get('file_public_path', conf_path() . '/files');
+}
+
+function _drush_file_private_path() {
+  return \Drupal::config('system.file')->get('path.private');
+}
+
+/**
+ * Gets the extension name.
+ *
+ * @param $info
+ *   The extension info.
+ * @return string
+ *   The extension name.
+ */
+function _drush_extension_get_name($info) {
+  return $info->getName();
+}
+
+/**
+ * Gets the extension type.
+ *
+ * @param $info
+ *   The extension info.
+ * @return string
+ *   The extension type.
+ */
+function _drush_extension_get_type($info) {
+  return $info->getType();
+}
+
+/**
+ * Gets the extension path.
+ *
+ * @param $info
+ *   The extension info.
+ * @return string
+ *   The extension path.
+ */
+function _drush_extension_get_path($info) {
+  return $info->getPath();
+}
+
+/*
+ * Wrapper for CSRF token generation.
+ */
+function drush_get_token($value = NULL) {
+  return \Drupal::csrfToken()->get($value);
 }
 
